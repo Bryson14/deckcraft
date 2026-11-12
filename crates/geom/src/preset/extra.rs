@@ -758,6 +758,89 @@ mod tests {
         build(name, w, h, adj).map(|g| g.outline()).unwrap_or_default()
     }
 
+    /// Adjust sets the digests were taken at: the defaults (an empty slice) and explicit values,
+    /// so every adjust branch runs.
+    const GOLD_ADJ: [&[f64]; 2] = [&[], &[0.25, 0.1, 0.5, 0.3, 0.7, 0.2, 0.6, 0.4, 0.9, 0.15]];
+    /// Sizes the digests were taken at: wide, tall and square.
+    const GOLD_SIZES: [(f64, f64); 3] = [(120.0, 80.0), (300.0, 50.0), (64.0, 64.0)];
+
+    /// FNV-1a over each outline's path elements, for every adjust set and size. Coordinates are
+    /// rounded to whole thousandths as integers, so the sign of a zero residue (`-1e-17` prints as
+    /// `-0.000` but `+0.0` as `0.000`) and last-bit libm differences between platforms cannot change it.
+    fn outline_digest(name: &str) -> u64 {
+        use std::fmt::Write;
+        let q = |v: f64| (v * 1000.0).round() as i64;
+        let mut text = String::new();
+        for adj in GOLD_ADJ {
+            for (w, h) in GOLD_SIZES {
+                let g = build(name, w, h, adj).unwrap_or_else(|| panic!("{name} builds no outline"));
+                for el in g.outline().elements() {
+                    let _ = match *el {
+                        PathEl::MoveTo(p) => write!(text, "M{},{}", q(p.x), q(p.y)),
+                        PathEl::LineTo(p) => write!(text, "L{},{}", q(p.x), q(p.y)),
+                        PathEl::QuadTo(a, p) => write!(text, "Q{},{},{},{}", q(a.x), q(a.y), q(p.x), q(p.y)),
+                        PathEl::CurveTo(a, b, p) => write!(text, "C{},{},{},{},{},{}", q(a.x), q(a.y), q(b.x), q(b.y), q(p.x), q(p.y)),
+                        PathEl::ClosePath => write!(text, "Z"),
+                    };
+                }
+                text.push('|');
+            }
+        }
+        text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+    }
+
+    /// Digests of every name's outlines as the string dispatch on `main` (fc35ad67) built them, so
+    /// this refactor is proven output-identical: any changed outline fails here.
+    const GOLDEN: [(&str, u64); 38] = [
+        ("lineInv", 0xc104fef5bde7b6b5),
+        ("nonIsoscelesTrapezoid", 0x92d849856a8154df),
+        ("pieWedge", 0xebc029ec8eef2beb),
+        ("leftRightArrowCallout", 0x03a2c0141b9f97c3),
+        ("upDownArrowCallout", 0xa8100fae3a38ab87),
+        ("quadArrowCallout", 0x439586794d9d7fad),
+        ("circularArrow", 0x66cd981029bed7c9),
+        ("leftCircularArrow", 0x06b19f2dc84ec89e),
+        ("leftRightCircularArrow", 0x8e1aeb28f256cf67),
+        ("curvedRightArrow", 0xf96dcfbfb827600b),
+        ("curvedLeftArrow", 0xecfd4b21b75d4aa1),
+        ("curvedUpArrow", 0x10e380986ecbfe6d),
+        ("curvedDownArrow", 0x349f26ffe220cc3d),
+        ("swooshArrow", 0x8faba202ab8d4513),
+        ("callout1", 0x81e44333a7c03955),
+        ("callout2", 0x96bddbf7fc6406e4),
+        ("callout3", 0x0a47039d206d70ea),
+        ("accentCallout1", 0x0c0122a2c6df5231),
+        ("accentCallout2", 0xa6783a754025feba),
+        ("accentCallout3", 0x4dd20823a8e86da2),
+        ("borderCallout2", 0x96bddbf7fc6406e4),
+        ("borderCallout3", 0x0a47039d206d70ea),
+        ("accentBorderCallout1", 0x0c0122a2c6df5231),
+        ("accentBorderCallout2", 0xa6783a754025feba),
+        ("accentBorderCallout3", 0x4dd20823a8e86da2),
+        ("ellipseRibbon", 0x22a2dcac6760afbf),
+        ("ellipseRibbon2", 0x9a9c15405ce479dc),
+        ("leftRightRibbon", 0x92473c2bbafb0d2f),
+        ("flowChartOfflineStorage", 0xfa44d7fc31d792b3),
+        ("gear6", 0x0d48eab24b683929),
+        ("gear9", 0x2ed4774b9850db1f),
+        ("funnel", 0x44ac92e12138e18d),
+        ("cornerTabs", 0x00358f20c78dd8dd),
+        ("squareTabs", 0x57e3fb8fd4433bfd),
+        ("plaqueTabs", 0x9de9bb90f759b2b5),
+        ("chartX", 0x33c8e67d6b3b3fdd),
+        ("chartStar", 0x0f9a70cff79a5d6d),
+        ("chartPlus", 0x5204b81fd4727575),
+    ];
+
+    /// Every name builds the same outline as before the `Name` enum, and unknown names build nothing.
+    #[test]
+    fn outlines_match_the_string_dispatch() {
+        for (name, want) in GOLDEN {
+            assert_eq!(outline_digest(name), want, "{name} outline changed");
+        }
+        assert!(build("noSuchShape", 100.0, 100.0, &[]).is_none());
+    }
+
     /// Every name this module builds round-trips through its OOXML identifier, and unknown
     /// strings do not parse.
     #[test]
