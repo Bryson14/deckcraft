@@ -2,13 +2,13 @@ use super::builder::{
     Corner, Dir, Pb, arrow, corner_rect, double_arrow, ellipse_sites, fill, fill_eo, fill_only, len_thick, mid_sites, orient, polygon_regular, shade,
     simple, spec_pts, star, star_text_rect, stroke_only, tip_handle, vis,
 };
-use super::catalog::{FillMode, Geometry, Handle, info};
+use super::catalog::{FillMode, Geometry, Handle, Preset};
 use super::shapes::{action_button, cloud, math, ribbon, scroll, wedge_rect};
 use super::{Arc, BezPath, Point, Rect, Vec2, extra};
 
 /// Size and adjust values shared by every preset-shape builder.
 struct Ctx<'a> {
-    name: &'a str,
+    name: Preset,
     w: f64,
     h: f64,
     adj: &'a [f64],
@@ -26,10 +26,15 @@ impl Ctx<'_> {
 /// Builds the geometry for preset `name` at size `w`×`h` with adjust values `adj` (missing
 /// values use the preset's defaults). Unknown names return `None`; the caller falls back to `rect`.
 pub fn build(name: &str, w: f64, h: f64, adj: &[f64]) -> Option<Geometry> {
+    build_preset(Preset::from_ooxml(name)?, w, h, adj)
+}
+
+/// [`build`] for a parsed preset: the typed entry point, with no string matching.
+pub fn build_preset(name: Preset, w: f64, h: f64, adj: &[f64]) -> Option<Geometry> {
     if !(w.is_finite() && h.is_finite()) {
         return None;
     }
-    let defaults = info(name).map(|i| i.defaults).unwrap_or(&[]);
+    let defaults = name.info().map(|i| i.defaults).unwrap_or(&[]);
     let c = Ctx { name, w: w.max(0.0), h: h.max(0.0), adj, defaults };
     rect_and_triangle_shapes(&c)
         .or_else(|| polygon_and_symbol_shapes(&c))
@@ -48,28 +53,28 @@ fn rect_and_triangle_shapes(c: &Ctx) -> Option<Geometry> {
     let a = |i: usize| c.a(i);
     let mut b = Pb::new();
     let g = match c.name {
-        "rect" | "textBox" | "flowChartProcess" => simple(corner_rect(w, h, [Corner::Square; 4]), full, w, h),
-        "actionButtonBlank"
-        | "actionButtonBackPrevious"
-        | "actionButtonForwardNext"
-        | "actionButtonBeginning"
-        | "actionButtonEnd"
-        | "actionButtonHome"
-        | "actionButtonInformation"
-        | "actionButtonReturn"
-        | "actionButtonMovie"
-        | "actionButtonDocument"
-        | "actionButtonSound"
-        | "actionButtonHelp" => action_button(name, w, h),
-        "roundRect" => {
+        Preset::Rect | Preset::TextBox | Preset::FlowChartProcess => simple(corner_rect(w, h, [Corner::Square; 4]), full, w, h),
+        Preset::ActionButtonBlank
+        | Preset::ActionButtonBackPrevious
+        | Preset::ActionButtonForwardNext
+        | Preset::ActionButtonBeginning
+        | Preset::ActionButtonEnd
+        | Preset::ActionButtonHome
+        | Preset::ActionButtonInformation
+        | Preset::ActionButtonReturn
+        | Preset::ActionButtonMovie
+        | Preset::ActionButtonDocument
+        | Preset::ActionButtonSound
+        | Preset::ActionButtonHelp => action_button(name, w, h),
+        Preset::RoundRect => {
             let v = a(0).clamp(0.0, 50000.0);
             let r = ss * v / 100000.0;
             let mut g = simple(corner_rect(w, h, [Corner::Round(r); 4]), full.inset(-r * 0.29289), w, h);
             g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(ss / 100000.0, 0.0), v, 0.0, 50000.0));
             g
         }
-        "flowChartAlternateProcess" => simple(corner_rect(w, h, [Corner::Round(ss / 6.0); 4]), full.inset(-ss / 6.0 * 0.29289), w, h),
-        "snip1Rect" => {
+        Preset::FlowChartAlternateProcess => simple(corner_rect(w, h, [Corner::Round(ss / 6.0); 4]), full.inset(-ss / 6.0 * 0.29289), w, h),
+        Preset::Snip1Rect => {
             let v = a(0).clamp(0.0, 50000.0);
             let d = ss * v / 100000.0;
             let mut g = simple(
@@ -81,23 +86,23 @@ fn rect_and_triangle_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::new(w, 0.0), Vec2::new(-ss / 100000.0, 0.0), v, 0.0, 50000.0));
             g
         }
-        "snip2SameRect" => {
+        Preset::Snip2SameRect => {
             let (d1, d2) = (ss * a(0).clamp(0.0, 50000.0) / 1e5, ss * a(1).clamp(0.0, 50000.0) / 1e5);
             simple(corner_rect(w, h, [Corner::Snip(d1), Corner::Snip(d1), Corner::Snip(d2), Corner::Snip(d2)]), full.inset(-d1.max(d2) / 2.0), w, h)
         }
-        "snip2DiagRect" => {
+        Preset::Snip2DiagRect => {
             let (d1, d2) = (ss * a(0).clamp(0.0, 50000.0) / 1e5, ss * a(1).clamp(0.0, 50000.0) / 1e5);
             simple(corner_rect(w, h, [Corner::Snip(d1), Corner::Snip(d2), Corner::Snip(d1), Corner::Snip(d2)]), full.inset(-d1.max(d2) / 2.0), w, h)
         }
-        "snipRoundRect" => {
+        Preset::SnipRoundRect => {
             let (r, d) = (ss * a(0).clamp(0.0, 50000.0) / 1e5, ss * a(1).clamp(0.0, 50000.0) / 1e5);
             simple(corner_rect(w, h, [Corner::Round(r), Corner::Snip(d), Corner::Square, Corner::Square]), full.inset(-r.max(d) / 2.0), w, h)
         }
-        "round1Rect" => {
+        Preset::Round1Rect => {
             let r = ss * a(0).clamp(0.0, 50000.0) / 1e5;
             simple(corner_rect(w, h, [Corner::Square, Corner::Round(r), Corner::Square, Corner::Square]), full.inset(-r * 0.29289), w, h)
         }
-        "round2SameRect" => {
+        Preset::Round2SameRect => {
             let (r1, r2) = (ss * a(0).clamp(0.0, 50000.0) / 1e5, ss * a(1).clamp(0.0, 50000.0) / 1e5);
             simple(
                 corner_rect(w, h, [Corner::Round(r1), Corner::Round(r1), Corner::Round(r2), Corner::Round(r2)]),
@@ -106,7 +111,7 @@ fn rect_and_triangle_shapes(c: &Ctx) -> Option<Geometry> {
                 h,
             )
         }
-        "round2DiagRect" => {
+        Preset::Round2DiagRect => {
             let (r1, r2) = (ss * a(0).clamp(0.0, 50000.0) / 1e5, ss * a(1).clamp(0.0, 50000.0) / 1e5);
             simple(
                 corner_rect(w, h, [Corner::Round(r1), Corner::Round(r2), Corner::Round(r1), Corner::Round(r2)]),
@@ -115,14 +120,14 @@ fn rect_and_triangle_shapes(c: &Ctx) -> Option<Geometry> {
                 h,
             )
         }
-        "ellipse" | "flowChartConnector" => {
+        Preset::Ellipse | Preset::FlowChartConnector => {
             let mut g =
                 simple(b.ellipse(w / 2.0, h / 2.0, w / 2.0, h / 2.0).take(), Rect::new(w * 0.14645, h * 0.14645, w * 0.85355, h * 0.85355), w, h);
             g.sites = ellipse_sites(w, h);
             g
         }
-        "triangle" | "flowChartExtract" => {
-            let v = if name == "triangle" { a(0).clamp(0.0, 100000.0) } else { 50000.0 };
+        Preset::Triangle | Preset::FlowChartExtract => {
+            let v = if name == Preset::Triangle { a(0).clamp(0.0, 100000.0) } else { 50000.0 };
             let ax = w * v / 100000.0;
             let mut g = simple(b.poly(&[(0.0, h), (ax, 0.0), (w, h)]).take(), Rect::new(ax / 2.0, h / 2.0, (ax + w) / 2.0, h), w, h);
             g.sites = vec![
@@ -133,17 +138,17 @@ fn rect_and_triangle_shapes(c: &Ctx) -> Option<Geometry> {
                 Point::new(w, h),
                 Point::new((ax + w) / 2.0, h / 2.0),
             ];
-            if name == "triangle" {
+            if name == Preset::Triangle {
                 g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(w / 100000.0, 0.0), v, 0.0, 100000.0));
             }
             g
         }
-        "flowChartMerge" => simple(b.poly(&[(0.0, 0.0), (w, 0.0), (w / 2.0, h)]).take(), Rect::new(w / 4.0, 0.0, w * 0.75, h / 2.0), w, h),
-        "rtTriangle" => {
+        Preset::FlowChartMerge => simple(b.poly(&[(0.0, 0.0), (w, 0.0), (w / 2.0, h)]).take(), Rect::new(w / 4.0, 0.0, w * 0.75, h / 2.0), w, h),
+        Preset::RtTriangle => {
             simple(b.poly(&[(0.0, 0.0), (0.0, h), (w, h)]).take(), Rect::new(w / 12.0, h * 7.0 / 12.0, w * 7.0 / 12.0, h * 11.0 / 12.0), w, h)
         }
-        "parallelogram" | "flowChartInputOutput" => {
-            let v = if name == "parallelogram" { a(0).clamp(0.0, 100000.0 * w / ss.max(1e-9)) } else { 20000.0 * w / ss.max(1e-9) };
+        Preset::Parallelogram | Preset::FlowChartInputOutput => {
+            let v = if name == Preset::Parallelogram { a(0).clamp(0.0, 100000.0 * w / ss.max(1e-9)) } else { 20000.0 * w / ss.max(1e-9) };
             let off = ss * v / 100000.0;
             let mut g = simple(
                 b.poly(&[(0.0, h), (off, 0.0), (w, 0.0), (w - off, h)]).take(),
@@ -151,12 +156,12 @@ fn rect_and_triangle_shapes(c: &Ctx) -> Option<Geometry> {
                 w,
                 h,
             );
-            if name == "parallelogram" {
+            if name == Preset::Parallelogram {
                 g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(ss / 100000.0, 0.0), v, 0.0, 100000.0 * w / ss.max(1e-9)));
             }
             g
         }
-        "trapezoid" => {
+        Preset::Trapezoid => {
             let v = a(0).clamp(0.0, 50000.0 * w / ss.max(1e-9));
             let off = ss * v / 100000.0;
             let mut g =
@@ -164,16 +169,16 @@ fn rect_and_triangle_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(ss / 100000.0, 0.0), v, 0.0, 50000.0 * w / ss.max(1e-9)));
             g
         }
-        "flowChartManualOperation" => {
+        Preset::FlowChartManualOperation => {
             simple(b.poly(&[(0.0, 0.0), (w, 0.0), (w * 0.8, h), (w * 0.2, h)]).take(), Rect::new(w * 0.2, 0.0, w * 0.8, h), w, h)
         }
-        "diamond" | "flowChartDecision" => simple(
+        Preset::Diamond | Preset::FlowChartDecision => simple(
             b.poly(&[(w / 2.0, 0.0), (w, h / 2.0), (w / 2.0, h), (0.0, h / 2.0)]).take(),
             Rect::new(w / 4.0, h / 4.0, w * 0.75, h * 0.75),
             w,
             h,
         ),
-        "flowChartSort" => {
+        Preset::FlowChartSort => {
             let d = b.poly(&[(w / 2.0, 0.0), (w, h / 2.0), (w / 2.0, h), (0.0, h / 2.0)]).take();
             let line = Pb::new().m(0.0, h / 2.0).l(w, h / 2.0).take();
             Geometry {
@@ -197,12 +202,12 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
     let a = |i: usize| c.a(i);
     let mut b = Pb::new();
     let g = match c.name {
-        "pentagon" => simple(b.poly(&polygon_regular(5, w, h, -90.0)).take(), Rect::new(w * 0.2, h * 0.27, w * 0.8, h * 0.9), w, h),
-        "heptagon" => simple(b.poly(&polygon_regular(7, w, h, -90.0)).take(), Rect::new(w * 0.16, h * 0.2, w * 0.84, h * 0.86), w, h),
-        "decagon" => simple(b.poly(&polygon_regular(10, w, h, 0.0)).take(), Rect::new(w * 0.1, h * 0.17, w * 0.9, h * 0.83), w, h),
-        "dodecagon" => simple(b.poly(&polygon_regular(12, w, h, 15.0)).take(), Rect::new(w * 0.13, h * 0.13, w * 0.87, h * 0.87), w, h),
-        "hexagon" | "flowChartPreparation" => {
-            let v = if name == "hexagon" { a(0).clamp(0.0, 50000.0 * w / ss.max(1e-9)) } else { 20000.0 * w / ss.max(1e-9) };
+        Preset::Pentagon => simple(b.poly(&polygon_regular(5, w, h, -90.0)).take(), Rect::new(w * 0.2, h * 0.27, w * 0.8, h * 0.9), w, h),
+        Preset::Heptagon => simple(b.poly(&polygon_regular(7, w, h, -90.0)).take(), Rect::new(w * 0.16, h * 0.2, w * 0.84, h * 0.86), w, h),
+        Preset::Decagon => simple(b.poly(&polygon_regular(10, w, h, 0.0)).take(), Rect::new(w * 0.1, h * 0.17, w * 0.9, h * 0.83), w, h),
+        Preset::Dodecagon => simple(b.poly(&polygon_regular(12, w, h, 15.0)).take(), Rect::new(w * 0.13, h * 0.13, w * 0.87, h * 0.87), w, h),
+        Preset::Hexagon | Preset::FlowChartPreparation => {
+            let v = if name == Preset::Hexagon { a(0).clamp(0.0, 50000.0 * w / ss.max(1e-9)) } else { 20000.0 * w / ss.max(1e-9) };
             let off = ss * v / 100000.0;
             let mut g = simple(
                 b.poly(&[(0.0, h / 2.0), (off, 0.0), (w - off, 0.0), (w, h / 2.0), (w - off, h), (off, h)]).take(),
@@ -210,12 +215,12 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
                 w,
                 h,
             );
-            if name == "hexagon" {
+            if name == Preset::Hexagon {
                 g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(ss / 100000.0, 0.0), v, 0.0, 50000.0 * w / ss.max(1e-9)));
             }
             g
         }
-        "octagon" => {
+        Preset::Octagon => {
             let v = a(0).clamp(0.0, 50000.0);
             let d = ss * v / 100000.0;
             let mut g = simple(
@@ -227,7 +232,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(ss / 100000.0, 0.0), v, 0.0, 50000.0));
             g
         }
-        "plus" => {
+        Preset::Plus => {
             let v = a(0).clamp(0.0, 50000.0);
             let d = ss * v / 100000.0;
             let mut g = simple(
@@ -253,7 +258,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(ss / 100000.0, 0.0), v, 0.0, 50000.0));
             g
         }
-        "frame" => {
+        Preset::Frame => {
             let v = a(0).clamp(0.0, 50000.0);
             let t = ss * v / 100000.0;
             b.poly(&[(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]);
@@ -262,19 +267,19 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(ss / 100000.0, 0.0), v, 0.0, 50000.0));
             g
         }
-        "halfFrame" => {
+        Preset::HalfFrame => {
             let (t1, t2) = (ss * a(0).clamp(0.0, 50000.0) / 1e5, ss * a(1).clamp(0.0, 50000.0) / 1e5);
             simple(b.poly(&[(0.0, 0.0), (w, 0.0), (w - t1, t1), (t2, t1), (t2, h - t2), (0.0, h)]).take(), full, w, h)
         }
-        "corner" => {
+        Preset::Corner => {
             let (t1, t2) = (ss * a(0).clamp(0.0, 100000.0) / 1e5, ss * a(1).clamp(0.0, 100000.0) / 1e5);
             simple(b.poly(&[(0.0, 0.0), (t2, 0.0), (t2, h - t1), (w, h - t1), (w, h), (0.0, h)]).take(), Rect::new(0.0, h - t1, w, h), w, h)
         }
-        "diagStripe" => {
+        Preset::DiagStripe => {
             let k = a(0).clamp(0.0, 100000.0) / 1e5;
             simple(b.poly(&[(0.0, h * k), (w * k, 0.0), (w, 0.0), (0.0, h)]).take(), Rect::new(0.0, 0.0, w / 2.0, h / 2.0), w, h)
         }
-        "plaque" => {
+        Preset::Plaque => {
             let v = a(0).clamp(0.0, 50000.0);
             let r = ss * v / 100000.0;
             b.m(0.0, r)
@@ -290,25 +295,25 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(ss / 100000.0, 0.0), v, 0.0, 50000.0));
             g
         }
-        "can" | "flowChartMagneticDisk" => {
+        Preset::Can | Preset::FlowChartMagneticDisk => {
             // The disk's ends are a third of its height (ECMA-376: ellipses of radius h/6).
-            let v = if name == "can" { a(0).clamp(0.0, 50000.0 * h / ss.max(1e-9)) } else { 100000.0 / 3.0 * h / ss.max(1e-9) };
+            let v = if name == Preset::Can { a(0).clamp(0.0, 50000.0 * h / ss.max(1e-9)) } else { 100000.0 / 3.0 * h / ss.max(1e-9) };
             let eh = ss * v / 100000.0;
             let r = eh / 2.0;
             let body = Pb::new().m(0.0, r).l(0.0, h - r).arc(w / 2.0, r, 180.0, -180.0).l(w, r).arc(w / 2.0, r, 0.0, -180.0).z().take();
             let top = Pb::new().ellipse(w / 2.0, r, w / 2.0, r).take();
             let mut g = Geometry {
-                paths: vec![fill(body), shade(top, if name == "can" { FillMode::Lighten } else { FillMode::Norm })],
+                paths: vec![fill(body), shade(top, if name == Preset::Can { FillMode::Lighten } else { FillMode::Norm })],
                 text_rect: Rect::new(0.0, eh, w, h - r),
                 handles: vec![],
                 sites: mid_sites(w, h),
             };
-            if name == "can" {
+            if name == Preset::Can {
                 g.handles.push(Handle::new(0, Point::new(w / 2.0, 0.0), Vec2::new(0.0, ss / 100000.0), v, 0.0, 50000.0 * h / ss.max(1e-9)));
             }
             g
         }
-        "flowChartMagneticDrum" => {
+        Preset::FlowChartMagneticDrum => {
             // ECMA-376: end ellipses of radius w/6 across.
             let r = w / 6.0;
             let body = Pb::new().m(r, 0.0).l(w - r, 0.0).arc(r, h / 2.0, 270.0, 180.0).l(r, h).arc(r, h / 2.0, 90.0, 180.0).z().take();
@@ -320,7 +325,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
                 sites: mid_sites(w, h),
             }
         }
-        "cube" => {
+        Preset::Cube => {
             let v = a(0).clamp(0.0, 100000.0);
             let d = ss * v / 100000.0;
             let front = Pb::new().poly(&[(0.0, d), (w - d, d), (w - d, h), (0.0, h)]).take();
@@ -335,7 +340,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::new(0.0, 0.0), Vec2::new(0.0, ss / 100000.0), v, 0.0, 100000.0));
             g
         }
-        "bevel" => {
+        Preset::Bevel => {
             let v = a(0).clamp(0.0, 50000.0);
             let d = ss * v / 100000.0;
             let inner = Pb::new().poly(&[(d, d), (w - d, d), (w - d, h - d), (d, h - d)]).take();
@@ -358,7 +363,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::ZERO, Vec2::new(ss / 100000.0, 0.0), v, 0.0, 50000.0));
             g
         }
-        "donut" => {
+        Preset::Donut => {
             let v = a(0).clamp(0.0, 50000.0);
             let t = ss * v / 100000.0;
             b.ellipse(w / 2.0, h / 2.0, w / 2.0, h / 2.0);
@@ -372,7 +377,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::new(0.0, h / 2.0), Vec2::new(ss / 100000.0, 0.0), v, 0.0, 50000.0));
             g
         }
-        "noSmoking" => {
+        Preset::NoSmoking => {
             let v = a(0).clamp(0.0, 50000.0);
             let t = ss * v / 100000.0;
             let (rx, ry) = ((w / 2.0 - t).max(0.0), (h / 2.0 - t).max(0.0));
@@ -393,7 +398,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
                 sites: ellipse_sites(w, h),
             }
         }
-        "blockArc" => {
+        Preset::BlockArc => {
             let st = a(0) / 60000.0;
             let en = a(1) / 60000.0;
             let t = ss * a(2).clamp(0.0, 50000.0) / 100000.0;
@@ -429,7 +434,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(2, pe, u * (ss / 100000.0), a(2).clamp(0.0, 50000.0), 0.0, 50000.0));
             g
         }
-        "pie" | "chord" | "arc" => {
+        Preset::Pie | Preset::Chord | Preset::Arc => {
             let (rx, ry) = (w / 2.0, h / 2.0);
             let s = vis(a(0) / 60000.0, rx, ry);
             let e = vis(a(1) / 60000.0, rx, ry);
@@ -441,11 +446,11 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             b.m(p0.x, p0.y).arc(rx, ry, s, sw);
             let text = Rect::new(w * 0.14645, h * 0.14645, w * 0.85355, h * 0.85355);
             let mut g = match name {
-                "pie" => {
+                Preset::Pie => {
                     b.l(rx, ry).z();
                     simple(b.take(), text, w, h)
                 }
-                "chord" => {
+                Preset::Chord => {
                     b.z();
                     simple(b.take(), text, w, h)
                 }
@@ -462,7 +467,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::angle(1, c, rx, ry, a(1)));
             g
         }
-        "teardrop" => {
+        Preset::Teardrop => {
             let k = a(0).clamp(0.0, 200000.0) / 100000.0;
             let tip = (w / 2.0 + w / 2.0 * k, h / 2.0 - h / 2.0 * k);
             b.m(0.0, h / 2.0).arc(w / 2.0, h / 2.0, 180.0, 90.0);
@@ -470,7 +475,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             b.arc(w / 2.0, h / 2.0, 0.0, 180.0).z();
             simple(b.take(), Rect::new(w * 0.14645, h * 0.14645, w * 0.85355, h * 0.85355), w, h)
         }
-        "foldedCorner" => {
+        Preset::FoldedCorner => {
             let v = a(0).clamp(0.0, 50000.0);
             let d = ss * v / 100000.0;
             let body = Pb::new().poly(&[(0.0, 0.0), (w, 0.0), (w, h - d), (w - d, h), (0.0, h)]).take();
@@ -482,7 +487,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
                 sites: mid_sites(w, h),
             }
         }
-        "smileyFace" => {
+        Preset::SmileyFace => {
             let k = a(0).clamp(-4653.0, 4653.0) / 100000.0;
             let face = Pb::new().ellipse(w / 2.0, h / 2.0, w / 2.0, h / 2.0).take();
             let mut eyes = Pb::new();
@@ -497,7 +502,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
                 sites: ellipse_sites(w, h),
             }
         }
-        "heart" => {
+        Preset::Heart => {
             // ECMA-376 heart: two cubic curves from the notch at the top to the point.
             let (dx1, dx2) = (w * 49.0 / 48.0, w * 10.0 / 48.0);
             let y1 = -h / 3.0;
@@ -507,7 +512,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
                 .z();
             simple(b.take(), Rect::new(w * 0.2, h * 0.25, w * 0.8, h * 0.7), w, h)
         }
-        "lightningBolt" => {
+        Preset::LightningBolt => {
             // ECMA-376 lightningBolt, in 21600ths of the box.
             let pts = spec_pts(
                 &[
@@ -528,7 +533,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             );
             simple(b.poly(&pts).take(), Rect::new(w * 8757.0 / 21600.0, h * 7637.0 / 21600.0, w * 13917.0 / 21600.0, h * 12963.0 / 21600.0), w, h)
         }
-        "sun" => {
+        Preset::Sun => {
             // ECMA-376 sun: eight triangular rays (their bases at fixed fractions of the core's
             // margin) around a circle of radius 50% - adj.
             let a = a(0).clamp(12500.0, 46875.0);
@@ -555,7 +560,7 @@ fn polygon_and_symbol_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::new(0.0, vc), Vec2::new(w / 100000.0, 0.0), a, 12500.0, 46875.0));
             g
         }
-        "moon" => {
+        Preset::Moon => {
             // ECMA-376 moon: the outer edge is the left half of an ellipse w × h/2 centred on the
             // right edge; the inner edge an arc through the corners and (adj · w, middle) of a
             // larger ellipse (rx = g18, ry = dy1) whose centre lies right of that point.
@@ -601,8 +606,8 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
     let a = |i: usize| c.a(i);
     let mut b = Pb::new();
     let g = match c.name {
-        "cloud" | "cloudCallout" => cloud(name, w, h, a(0), a(1)),
-        "bracketPair" => {
+        Preset::Cloud | Preset::CloudCallout => cloud(name, w, h, a(0), a(1)),
+        Preset::BracketPair => {
             let r = ss * a(0).clamp(0.0, 50000.0) / 1e5;
             let mut l = Pb::new();
             l.m(r, h).arc(r, r, 90.0, 90.0).l(0.0, r).arc(r, r, 180.0, 90.0);
@@ -615,7 +620,7 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
                 sites: mid_sites(w, h),
             }
         }
-        "bracePair" => {
+        Preset::BracePair => {
             let r = ss * a(0).clamp(0.0, 25000.0) / 1e5;
             let mut l = Pb::new();
             l.m(2.0 * r, h).arc(r, r, 90.0, 90.0).l(r, h / 2.0 + r).arc(r, r, 0.0, -90.0).arc(r, r, 90.0, -90.0).l(r, r).arc(r, r, 180.0, 90.0);
@@ -629,12 +634,12 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             let f = corner_rect(w, h, [Corner::Round(r); 4]);
             Geometry { paths: vec![fill_only(f), stroke_only(l.take())], text_rect: full.inset(-r * 1.2), handles: vec![], sites: mid_sites(w, h) }
         }
-        "leftBracket" | "rightBracket" => {
+        Preset::LeftBracket | Preset::RightBracket => {
             let r = (ss * a(0).clamp(0.0, 50000.0 * h / ss.max(1e-9)) / 1e5).min(h / 2.0);
             let mut l = Pb::new();
             l.m(w, h).arc(w, r, 90.0, 90.0).l(0.0, r).arc(w, r, 180.0, 90.0);
             let mut path = l.take();
-            if name == "rightBracket" {
+            if name == Preset::RightBracket {
                 path.apply_affine(kurbo::Affine::new([-1.0, 0.0, 0.0, 1.0, w, 0.0]));
             }
             // Filled (when the shape has a fill) out to the straight side, as PowerPoint does.
@@ -642,14 +647,14 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             area.close_path();
             Geometry { paths: vec![fill_only(area), stroke_only(path)], text_rect: full, handles: vec![], sites: mid_sites(w, h) }
         }
-        "leftBrace" | "rightBrace" => {
+        Preset::LeftBrace | Preset::RightBrace => {
             let r = (ss * a(0).clamp(0.0, 25000.0 * h / ss.max(1e-9)) / 1e5).min(h / 4.0);
             let my = h * a(1).clamp(0.0, 100000.0) / 1e5;
             let hw = w / 2.0;
             let mut l = Pb::new();
             l.m(w, h).arc(hw, r, 90.0, 90.0).l(hw, my + r).arc(hw, r, 0.0, -90.0).arc(hw, r, 90.0, -90.0).l(hw, r).arc(hw, r, 180.0, 90.0);
             let mut path = l.take();
-            if name == "rightBrace" {
+            if name == Preset::RightBrace {
                 path.apply_affine(kurbo::Affine::new([-1.0, 0.0, 0.0, 1.0, w, 0.0]));
             }
             // Filled (when the shape has a fill) out to the straight side, as PowerPoint does.
@@ -657,18 +662,18 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             area.close_path();
             Geometry { paths: vec![fill_only(area), stroke_only(path)], text_rect: full, handles: vec![], sites: mid_sites(w, h) }
         }
-        "rightArrow" => arrow(Dir::Right, w, h, a(0), a(1)),
-        "leftArrow" => arrow(Dir::Left, w, h, a(0), a(1)),
-        "upArrow" => arrow(Dir::Up, w, h, a(0), a(1)),
-        "downArrow" => arrow(Dir::Down, w, h, a(0), a(1)),
-        "leftRightArrow" => double_arrow(false, w, h, a(0), a(1)),
-        "upDownArrow" => double_arrow(true, w, h, a(0), a(1)),
-        "notchedRightArrow" | "stripedRightArrow" => {
+        Preset::RightArrow => arrow(Dir::Right, w, h, a(0), a(1)),
+        Preset::LeftArrow => arrow(Dir::Left, w, h, a(0), a(1)),
+        Preset::UpArrow => arrow(Dir::Up, w, h, a(0), a(1)),
+        Preset::DownArrow => arrow(Dir::Down, w, h, a(0), a(1)),
+        Preset::LeftRightArrow => double_arrow(false, w, h, a(0), a(1)),
+        Preset::UpDownArrow => double_arrow(true, w, h, a(0), a(1)),
+        Preset::NotchedRightArrow | Preset::StripedRightArrow => {
             let mut g = arrow(Dir::Right, w, h, a(0), a(1));
             let k = a(0).clamp(0.0, 100000.0) / 1e5;
             let (y1, y2) = (h / 2.0 - h * k / 2.0, h / 2.0 + h * k / 2.0);
             let dx = (ss * a(1).max(0.0) / 1e5).min(w);
-            if name == "notchedRightArrow" {
+            if name == Preset::NotchedRightArrow {
                 // x1 = dy1 · dx2 / hd2 in presetShapeDefinitions, with dy1 = h·k/2: the notch's
                 // edges run parallel to the head's
                 let n = dx * k;
@@ -685,10 +690,10 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             }
             g
         }
-        "homePlate" | "chevron" => {
+        Preset::HomePlate | Preset::Chevron => {
             let v = a(0).clamp(0.0, 100000.0 * w / ss.max(1e-9));
             let d = (ss * v / 1e5).min(w);
-            let pts: Vec<(f64, f64)> = if name == "homePlate" {
+            let pts: Vec<(f64, f64)> = if name == Preset::HomePlate {
                 vec![(0.0, 0.0), (w - d, 0.0), (w, h / 2.0), (w - d, h), (0.0, h)]
             } else {
                 vec![(0.0, 0.0), (w - d, 0.0), (w, h / 2.0), (w - d, h), (0.0, h), (d, h / 2.0)]
@@ -696,7 +701,7 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             // Text rectangles as presetShapeDefinitions give them: homePlate's runs to halfway
             // along the point; chevron's lies between the notch and the point's base (x1..x2)
             // and covers the whole width once those meet or cross (`?: dx x1 l`).
-            let text = if name == "homePlate" {
+            let text = if name == Preset::HomePlate {
                 Rect::new(0.0, 0.0, w - d / 2.0, h)
             } else if w - d > d {
                 Rect::new(d, 0.0, w - d, h)
@@ -707,7 +712,7 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::new(w, 0.0), Vec2::new(-ss / 1e5, 0.0), v, 0.0, 100000.0 * w / ss.max(1e-9)));
             g
         }
-        "quadArrow" => {
+        Preset::QuadArrow => {
             let (t, hw, hl) = (ss * a(0).clamp(0.0, 50000.0) / 1e5, ss * a(1).clamp(0.0, 50000.0) / 1e5, ss * a(2).clamp(0.0, 50000.0) / 1e5);
             let (cx, cy) = (w / 2.0, h / 2.0);
             let (t2, hw2) = (t / 2.0, hw);
@@ -739,7 +744,7 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             ];
             simple(b.poly(&pts).take(), Rect::new(cx - t2, cy - t2, cx + t2, cy + t2), w, h)
         }
-        "leftRightUpArrow" => {
+        Preset::LeftRightUpArrow => {
             let (t, hw, hl) = (ss * a(0).clamp(0.0, 50000.0) / 1e5, ss * a(1).clamp(0.0, 50000.0) / 1e5, ss * a(2).clamp(0.0, 50000.0) / 1e5);
             let cx = w / 2.0;
             let by = h - hw; // horizontal shaft centre
@@ -764,9 +769,9 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             ];
             simple(b.poly(&pts).take(), Rect::new(hl, by - t / 2.0, w - hl, by + t / 2.0), w, h)
         }
-        "leftUpArrow" | "bentUpArrow" => {
+        Preset::LeftUpArrow | Preset::BentUpArrow => {
             let (t, hw, hl) = (ss * a(0).clamp(0.0, 50000.0) / 1e5, ss * a(1).clamp(0.0, 50000.0) / 1e5, ss * a(2).clamp(0.0, 50000.0) / 1e5);
-            let pts: Vec<(f64, f64)> = if name == "leftUpArrow" {
+            let pts: Vec<(f64, f64)> = if name == Preset::LeftUpArrow {
                 let cx = w - hw;
                 let cy = h - hw;
                 vec![
@@ -799,7 +804,7 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             };
             simple(b.poly(&pts).take(), full, w, h)
         }
-        "bentArrow" => {
+        Preset::BentArrow => {
             let (t, hw, hl, r) = (
                 ss * a(0).clamp(0.0, 50000.0) / 1e5,
                 ss * a(1).clamp(0.0, 50000.0) / 1e5,
@@ -824,7 +829,7 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             b.l(t, h).z();
             simple(b.take(), full, w, h)
         }
-        "uturnArrow" => {
+        Preset::UturnArrow => {
             let (t, hw, hl, r) = (
                 ss * a(0).clamp(0.0, 25000.0) / 1e5,
                 ss * a(1).clamp(0.0, 25000.0) / 1e5,
@@ -847,11 +852,11 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             b.l(t, h).z();
             simple(b.take(), full, w, h)
         }
-        "rightArrowCallout" | "leftArrowCallout" | "upArrowCallout" | "downArrowCallout" => {
+        Preset::RightArrowCallout | Preset::LeftArrowCallout | Preset::UpArrowCallout | Preset::DownArrowCallout => {
             let d = match name {
-                "rightArrowCallout" => Dir::Right,
-                "leftArrowCallout" => Dir::Left,
-                "upArrowCallout" => Dir::Up,
+                Preset::RightArrowCallout => Dir::Right,
+                Preset::LeftArrowCallout => Dir::Left,
+                Preset::UpArrowCallout => Dir::Up,
                 _ => Dir::Down,
             };
             let (l, t) = len_thick(d, w, h);
@@ -878,7 +883,9 @@ fn bracket_and_arrow_shapes(c: &Ctx) -> Option<Geometry> {
             let tr = orient(d, w, h, &[(0.0, 0.0), (boxl, t)]);
             simple(b.poly(&pts).take(), Rect::from_points(Point::new(tr[0].0, tr[0].1), Point::new(tr[1].0, tr[1].1)).abs(), w, h)
         }
-        "mathPlus" | "mathMinus" | "mathEqual" | "mathDivide" | "mathMultiply" | "mathNotEqual" => math(name, w, h, a(0), a(1), a(2)),
+        Preset::MathPlus | Preset::MathMinus | Preset::MathEqual | Preset::MathDivide | Preset::MathMultiply | Preset::MathNotEqual => {
+            math(name, w, h, a(0), a(1), a(2))
+        }
         _ => return None,
     };
     Some(g)
@@ -893,7 +900,7 @@ fn flowchart_and_star_shapes(c: &Ctx) -> Option<Geometry> {
     let a = |i: usize| c.a(i);
     let mut b = Pb::new();
     let g = match c.name {
-        "flowChartPredefinedProcess" => {
+        Preset::FlowChartPredefinedProcess => {
             let r = Pb::new().poly(&[(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]).take();
             let mut l = Pb::new();
             l.m(w / 8.0, 0.0).l(w / 8.0, h).m(w * 7.0 / 8.0, 0.0).l(w * 7.0 / 8.0, h);
@@ -904,7 +911,7 @@ fn flowchart_and_star_shapes(c: &Ctx) -> Option<Geometry> {
                 sites: mid_sites(w, h),
             }
         }
-        "flowChartInternalStorage" => {
+        Preset::FlowChartInternalStorage => {
             let r = Pb::new().poly(&[(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]).take();
             let mut l = Pb::new();
             l.m(w / 8.0, 0.0).l(w / 8.0, h).m(0.0, h / 8.0).l(w, h / 8.0);
@@ -915,13 +922,13 @@ fn flowchart_and_star_shapes(c: &Ctx) -> Option<Geometry> {
                 sites: mid_sites(w, h),
             }
         }
-        "flowChartDocument" => {
+        Preset::FlowChartDocument => {
             let u = |x: f64, y: f64| (w * x / 21600.0, h * y / 21600.0);
             let (p1, p2, p3, p4) = (u(21600.0, 17322.0), u(10800.0, 17322.0), u(10800.0, 23922.0), u(0.0, 20172.0));
             b.m(0.0, 0.0).l(w, 0.0).l(p1.0, p1.1).c(p2.0, p2.1, p3.0, p3.1, p4.0, p4.1).z();
             simple(b.take(), Rect::new(0.0, 0.0, w, h * 17322.0 / 21600.0), w, h)
         }
-        "flowChartMultidocument" => {
+        Preset::FlowChartMultidocument => {
             // ECMA-376 multidocument (21600ths): two back pages peeking out above and right of
             // the front one; the back pages' edges are outlined only where they show.
             let x = |v: f64| w * v / 21600.0;
@@ -959,29 +966,29 @@ fn flowchart_and_star_shapes(c: &Ctx) -> Option<Geometry> {
                 sites: mid_sites(w, h),
             }
         }
-        "flowChartTerminator" => {
+        Preset::FlowChartTerminator => {
             let rx = (w * 0.16).min(w / 2.0);
             b.m(rx, 0.0).l(w - rx, 0.0).arc(rx, h / 2.0, 270.0, 180.0).l(rx, h).arc(rx, h / 2.0, 90.0, 180.0).z();
             simple(b.take(), Rect::new(rx * 0.3, h * 0.15, w - rx * 0.3, h * 0.85), w, h)
         }
-        "flowChartManualInput" => simple(b.poly(&[(0.0, h / 5.0), (w, 0.0), (w, h), (0.0, h)]).take(), Rect::new(0.0, h / 5.0, w, h), w, h),
-        "flowChartOffpageConnector" => {
+        Preset::FlowChartManualInput => simple(b.poly(&[(0.0, h / 5.0), (w, 0.0), (w, h), (0.0, h)]).take(), Rect::new(0.0, h / 5.0, w, h), w, h),
+        Preset::FlowChartOffpageConnector => {
             simple(b.poly(&[(0.0, 0.0), (w, 0.0), (w, h * 0.8), (w / 2.0, h), (0.0, h * 0.8)]).take(), Rect::new(0.0, 0.0, w, h * 0.8), w, h)
         }
-        "flowChartPunchedCard" => {
+        Preset::FlowChartPunchedCard => {
             simple(b.poly(&[(w * 0.2, 0.0), (w, 0.0), (w, h), (0.0, h), (0.0, h * 0.2)]).take(), Rect::new(0.0, h * 0.2, w, h), w, h)
         }
-        "flowChartPunchedTape" => {
+        Preset::FlowChartPunchedTape => {
             // ECMA-376: each long edge is two half-ellipses a quarter of the width wide and a
             // tenth of the height deep, one bulging in and one out.
             let (rx, ry) = (w / 4.0, h / 10.0);
             b.m(0.0, ry).arc(rx, ry, 180.0, -180.0).arc(rx, ry, 180.0, 180.0).l(w, h - ry).arc(rx, ry, 0.0, -180.0).arc(rx, ry, 0.0, 180.0).z();
             simple(b.take(), Rect::new(0.0, h / 5.0, w, h * 0.8), w, h)
         }
-        "flowChartSummingJunction" | "flowChartOr" => {
+        Preset::FlowChartSummingJunction | Preset::FlowChartOr => {
             let e = Pb::new().ellipse(w / 2.0, h / 2.0, w / 2.0, h / 2.0).take();
             let mut l = Pb::new();
-            if name == "flowChartOr" {
+            if name == Preset::FlowChartOr {
                 l.m(w / 2.0, 0.0).l(w / 2.0, h).m(0.0, h / 2.0).l(w, h / 2.0);
             } else {
                 let (dx, dy) = (w / 2.0 * std::f64::consts::FRAC_1_SQRT_2, h / 2.0 * std::f64::consts::FRAC_1_SQRT_2);
@@ -994,17 +1001,19 @@ fn flowchart_and_star_shapes(c: &Ctx) -> Option<Geometry> {
                 sites: ellipse_sites(w, h),
             }
         }
-        "flowChartCollate" => simple(b.poly(&[(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]).take(), Rect::new(w / 4.0, h / 4.0, w * 0.75, h * 0.75), w, h),
-        "flowChartOnlineStorage" => {
+        Preset::FlowChartCollate => {
+            simple(b.poly(&[(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]).take(), Rect::new(w / 4.0, h / 4.0, w * 0.75, h * 0.75), w, h)
+        }
+        Preset::FlowChartOnlineStorage => {
             let rx = w / 6.0;
             b.m(rx, 0.0).l(w, 0.0).arc(rx, h / 2.0, 270.0, -180.0).l(rx, h).arc(rx, h / 2.0, 90.0, 180.0).z();
             simple(b.take(), Rect::new(rx, 0.0, w - rx, h), w, h)
         }
-        "flowChartDelay" => {
+        Preset::FlowChartDelay => {
             b.m(0.0, 0.0).l(w / 2.0, 0.0).arc(w / 2.0, h / 2.0, 270.0, 180.0).l(0.0, h).z();
             simple(b.take(), Rect::new(0.0, h * 0.15, w * 0.85, h * 0.85), w, h)
         }
-        "flowChartMagneticTape" => {
+        Preset::FlowChartMagneticTape => {
             b.m(w / 2.0, h).arc(w / 2.0, h / 2.0, 90.0, 90.0).arc(w / 2.0, h / 2.0, 180.0, 90.0).arc(w / 2.0, h / 2.0, 270.0, 90.0).arc(
                 w / 2.0,
                 h / 2.0,
@@ -1015,13 +1024,22 @@ fn flowchart_and_star_shapes(c: &Ctx) -> Option<Geometry> {
             b.l(w, p.y).l(w, h).z();
             simple(b.take(), Rect::new(w * 0.14645, h * 0.14645, w * 0.85355, h * 0.85355), w, h)
         }
-        "flowChartDisplay" => {
+        Preset::FlowChartDisplay => {
             let rx = w / 6.0;
             b.m(0.0, h / 2.0).l(rx, 0.0).l(w - rx, 0.0).arc(rx, h / 2.0, 270.0, 180.0).l(rx, h).z();
             simple(b.take(), Rect::new(rx, 0.0, w - rx, h), w, h)
         }
-        "star4" | "star5" | "star6" | "star7" | "star8" | "star10" | "star12" | "star16" | "star24" | "star32" => {
-            let n: usize = name.trim_start_matches("star").parse().unwrap_or(5);
+        Preset::Star4
+        | Preset::Star5
+        | Preset::Star6
+        | Preset::Star7
+        | Preset::Star8
+        | Preset::Star10
+        | Preset::Star12
+        | Preset::Star16
+        | Preset::Star24
+        | Preset::Star32 => {
+            let n: usize = name.ooxml().trim_start_matches("star").parse().unwrap_or(5);
             let v = a(0).clamp(0.0, 50000.0);
             let inner = v / 50000.0;
             let text = star_text_rect(n, w, h, inner).unwrap_or_else(|| full.inset(-ss * (0.5 - inner * 0.5) * 0.5));
@@ -1029,7 +1047,7 @@ fn flowchart_and_star_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(Handle::new(0, Point::new(w / 2.0, h / 2.0), Vec2::new(0.0, -h / 2.0 / 50000.0), v, 0.0, 50000.0));
             g
         }
-        "irregularSeal1" => {
+        Preset::IrregularSeal1 => {
             // ECMA-376 irregularSeal1 ("Explosion: 8 Points"), in 21600ths of the box.
             let pts = spec_pts(
                 &[
@@ -1063,7 +1081,7 @@ fn flowchart_and_star_shapes(c: &Ctx) -> Option<Geometry> {
             );
             simple(b.poly(&pts).take(), Rect::new(w * 4627.0 / 21600.0, h * 6320.0 / 21600.0, w * 16702.0 / 21600.0, h * 13937.0 / 21600.0), w, h)
         }
-        "irregularSeal2" => {
+        Preset::IrregularSeal2 => {
             // ECMA-376 irregularSeal2 ("Explosion: 14 Points"), in 21600ths of the box.
             let pts = spec_pts(
                 &[
@@ -1115,12 +1133,12 @@ fn callout_wave_and_connector_shapes(c: &Ctx) -> Option<Geometry> {
     let a = |i: usize| c.a(i);
     let mut b = Pb::new();
     let g = match c.name {
-        "ribbon" | "ribbon2" => ribbon(name == "ribbon2", w, h, a(0), a(1)),
-        "verticalScroll" | "horizontalScroll" => scroll(name == "verticalScroll", w, h, a(0)),
-        "wave" | "doubleWave" => {
+        Preset::Ribbon | Preset::Ribbon2 => ribbon(name == Preset::Ribbon2, w, h, a(0), a(1)),
+        Preset::VerticalScroll | Preset::HorizontalScroll => scroll(name == Preset::VerticalScroll, w, h, a(0)),
+        Preset::Wave | Preset::DoubleWave => {
             // ECMA-376 wave / doubleWave: the top and bottom edges are cubic waves (one or two
             // periods) of amplitude adj1, shifted sideways by adj2.
-            let a1 = a(0).clamp(0.0, if name == "wave" { 20000.0 } else { 12500.0 });
+            let a1 = a(0).clamp(0.0, if name == Preset::Wave { 20000.0 } else { 12500.0 });
             let a2 = a(1).clamp(-10000.0, 10000.0);
             let y1 = h * a1 / 100000.0;
             let dy2 = y1 * 10.0 / 3.0;
@@ -1131,7 +1149,7 @@ fn callout_wave_and_connector_shapes(c: &Ctx) -> Option<Geometry> {
             let dxr = of2.max(0.0);
             let (x2, xr, xl, x10) = (-dx2, w - dxr, dxr, w + dx2);
             let text_y = h * a1 / 50000.0;
-            if name == "wave" {
+            if name == Preset::Wave {
                 let dx3 = (dx2 + xr) / 3.0;
                 let (x3, x7) = (x2 + dx3, xl + dx3);
                 let (x4, x8) = ((x3 + xr) / 2.0, (x7 + x10) / 2.0);
@@ -1149,11 +1167,11 @@ fn callout_wave_and_connector_shapes(c: &Ctx) -> Option<Geometry> {
             }
             simple(b.take(), Rect::new(x2.max(xl), text_y, xr.min(x10), h - text_y), w, h)
         }
-        "wedgeRectCallout" | "wedgeRoundRectCallout" => {
-            let r = if name == "wedgeRoundRectCallout" { ss * a(2).clamp(0.0, 50000.0) / 1e5 } else { 0.0 };
+        Preset::WedgeRectCallout | Preset::WedgeRoundRectCallout => {
+            let r = if name == Preset::WedgeRoundRectCallout { ss * a(2).clamp(0.0, 50000.0) / 1e5 } else { 0.0 };
             wedge_rect(w, h, a(0), a(1), r)
         }
-        "wedgeEllipseCallout" => {
+        Preset::WedgeEllipseCallout => {
             let tip = Point::new(w / 2.0 + w * a(0) / 1e5, h / 2.0 + h * a(1) / 1e5);
             let ang = (tip.y - h / 2.0).atan2(tip.x - w / 2.0).to_degrees();
             let s = vis(ang + 10.0, w / 2.0, h / 2.0);
@@ -1171,30 +1189,30 @@ fn callout_wave_and_connector_shapes(c: &Ctx) -> Option<Geometry> {
             g.handles.push(tip_handle(w, h, tip));
             g
         }
-        "borderCallout1" => {
+        Preset::BorderCallout1 => {
             let r = Pb::new().poly(&[(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]).take();
             let p1 = (w * a(1) / 1e5, h * a(0) / 1e5);
             let p2 = (w * a(3) / 1e5, h * a(2) / 1e5);
             let l = Pb::new().m(p1.0, p1.1).l(p2.0, p2.1).take();
             Geometry { paths: vec![fill(r), stroke_only(l)], text_rect: full, handles: vec![], sites: mid_sites(w, h) }
         }
-        "line" | "straightConnector1" => {
+        Preset::Line | Preset::StraightConnector1 => {
             let l = Pb::new().m(0.0, 0.0).l(w, h).take();
             Geometry { paths: vec![stroke_only(l)], text_rect: full, handles: vec![], sites: vec![Point::ZERO, Point::new(w, h)] }
         }
-        "bentConnector2" => {
+        Preset::BentConnector2 => {
             let l = Pb::new().m(0.0, 0.0).l(w, 0.0).l(w, h).take();
             Geometry { paths: vec![stroke_only(l)], text_rect: full, handles: vec![], sites: vec![Point::ZERO, Point::new(w, h)] }
         }
-        "bentConnector3" | "bentConnector4" | "bentConnector5" => {
+        Preset::BentConnector3 | Preset::BentConnector4 | Preset::BentConnector5 => {
             let x = w * a(0) / 1e5;
             let l = Pb::new().m(0.0, 0.0).l(x, 0.0).l(x, h).l(w, h).take();
             let mut g = Geometry { paths: vec![stroke_only(l)], text_rect: full, handles: vec![], sites: vec![Point::ZERO, Point::new(w, h)] };
             g.handles.push(Handle::new(0, Point::new(0.0, h / 2.0), Vec2::new(w / 1e5, 0.0), a(0), -1e6, 1e6));
             g
         }
-        "curvedConnector2" | "curvedConnector3" | "curvedConnector4" | "curvedConnector5" => {
-            let x = w * if name == "curvedConnector2" { 100000.0 } else { a(0) } / 1e5;
+        Preset::CurvedConnector2 | Preset::CurvedConnector3 | Preset::CurvedConnector4 | Preset::CurvedConnector5 => {
+            let x = w * if name == Preset::CurvedConnector2 { 100000.0 } else { a(0) } / 1e5;
             let l = Pb::new().m(0.0, 0.0).c(x / 2.0, 0.0, x, h / 4.0, x, h / 2.0).c(x, h * 0.75, (x + w) / 2.0, h, w, h).take();
             Geometry { paths: vec![stroke_only(l)], text_rect: full, handles: vec![], sites: vec![Point::ZERO, Point::new(w, h)] }
         }

@@ -418,3 +418,90 @@ fn wedge_callout_mirrors_with_its_tip() {
         assert!(a.iter().any(|p| (p.x - x).abs() < 1e-6 && (p.y - h).abs() < 1e-6), "no wedge corner at ({x}, {h}): {a:?}");
     }
 }
+
+const GOLD_ADJ: [&[f64]; 2] = [&[], &[0.25, 0.1, 0.5, 0.3, 0.7, 0.2, 0.6, 0.4, 0.9, 0.15]];
+const GOLD_SIZES: [(f64, f64); 3] = [(120.0, 80.0), (300.0, 50.0), (64.0, 64.0)];
+
+/// FNV-1a over everything a preset builds (sub-paths with their fills, the text rectangle, handles,
+/// sites) for every adjust set and size. Coordinates are rounded to whole thousandths as integers,
+/// so the sign of a zero residue and last-bit libm differences between platforms cannot change it.
+fn geometry_digest(name: &str) -> Option<u64> {
+    use kurbo::PathEl;
+    use std::fmt::Write;
+    let q = |v: f64| (v * 1000.0).round() as i64;
+    let mut text = String::new();
+    for adj in GOLD_ADJ {
+        for (w, h) in GOLD_SIZES {
+            let g = build(name, w, h, adj)?;
+            for s in &g.paths {
+                let _ = write!(text, "[{:?},{},{}", s.fill, s.stroke, s.even_odd);
+                for el in s.path.elements() {
+                    let _ = match *el {
+                        PathEl::MoveTo(p) => write!(text, "M{},{}", q(p.x), q(p.y)),
+                        PathEl::LineTo(p) => write!(text, "L{},{}", q(p.x), q(p.y)),
+                        PathEl::QuadTo(a, p) => write!(text, "Q{},{},{},{}", q(a.x), q(a.y), q(p.x), q(p.y)),
+                        PathEl::CurveTo(a, b, p) => write!(text, "C{},{},{},{},{},{}", q(a.x), q(a.y), q(b.x), q(b.y), q(p.x), q(p.y)),
+                        PathEl::ClosePath => write!(text, "Z"),
+                    };
+                }
+                text.push(']');
+            }
+            let r = g.text_rect;
+            let _ = write!(text, "T{},{},{},{}", q(r.x0), q(r.y0), q(r.x1), q(r.y1));
+            for hd in &g.handles {
+                let _ = write!(
+                    text,
+                    "H{},{},{},{},{},{},{},{},{},{}",
+                    hd.index,
+                    q(hd.pos.x),
+                    q(hd.pos.y),
+                    q(hd.origin.x),
+                    q(hd.origin.y),
+                    q(hd.dir.x),
+                    q(hd.dir.y),
+                    q(hd.min),
+                    q(hd.max),
+                    hd.angle
+                );
+            }
+            for p in &g.sites {
+                let _ = write!(text, "S{},{}", q(p.x), q(p.y));
+            }
+            text.push('|');
+        }
+    }
+    Some(text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)))
+}
+
+/// `name digest` per line: every preset's geometry digest as built by the string dispatch before
+/// the `Preset` enum (upstream `2127bd1b`). Regenerate only to prove a change is not an output change.
+const GOLDEN: &str = include_str!("golden.txt");
+
+/// Every preset builds exactly the geometry it built before the enum: sub-paths, fills, text
+/// rectangle, handles and sites, at every size and adjust set in the digest.
+#[test]
+fn every_preset_builds_the_same_geometry_as_before_the_enum() {
+    let mut checked = 0;
+    for line in GOLDEN.lines() {
+        let (name, want) = line.split_once(' ').expect("golden line");
+        let want = u64::from_str_radix(want.trim_start_matches("0x"), 16).expect("golden digest");
+        assert_eq!(geometry_digest(name), Some(want), "{name} geometry changed");
+        checked += 1;
+    }
+    assert_eq!(checked, Preset::ALL.len(), "golden.txt must list every preset");
+}
+
+/// Every preset name parses back to its variant; the catalog and the parser agree; unknown names
+/// parse to nothing.
+#[test]
+fn preset_names_round_trip_and_the_catalog_agrees() {
+    for &p in Preset::ALL {
+        assert_eq!(Preset::from_ooxml(p.ooxml()), Some(p), "{} does not round-trip", p.ooxml());
+    }
+    for info in CATALOG {
+        assert_eq!(Preset::from_ooxml(info.name), Some(info.preset));
+        assert_eq!(info.preset.info().map(|i| i.name), Some(info.name));
+    }
+    assert!(Preset::from_ooxml("noSuchShape").is_none());
+    assert!(Preset::from_ooxml("").is_none());
+}

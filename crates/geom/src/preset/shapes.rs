@@ -1,4 +1,5 @@
 use super::builder::{Corner, Pb, corner_rect, fill, mid_sites, shade, simple, stroke_only, tip_handle};
+use super::catalog::Preset;
 use super::catalog::{FillMode, Geometry};
 use super::{Point, Rect};
 
@@ -80,7 +81,7 @@ const CLOUD_CREASES: [(f64, f64, f64, f64, f64, f64); 11] = [
     (4127.0, 15789.0, 6753.0, 9190.0, 9459261.0, 711490.0),
 ];
 
-pub(super) fn cloud(name: &str, w: f64, h: f64, a0: f64, a1: f64) -> Geometry {
+pub(super) fn cloud(name: Preset, w: f64, h: f64, a0: f64, a1: f64) -> Geometry {
     // Drawn in the path's own 43200-unit square, then stretched to the box (as DrawingML lays out
     // a path with its own w and h), so the arcs keep their shape's proportions at any aspect.
     let to_box = kurbo::Affine::scale_non_uniform(w / 43200.0, h / 43200.0);
@@ -98,14 +99,14 @@ pub(super) fn cloud(name: &str, w: f64, h: f64, a0: f64, a1: f64) -> Geometry {
     let mut outline = b.take();
     outline.apply_affine(to_box);
     let mut paths = vec![fill(outline)];
-    if name == "cloud" {
+    if name == Preset::Cloud {
         let mut c = creases.take();
         c.apply_affine(to_box);
         paths.push(stroke_only(c));
     }
     let text_rect = Rect::new(w * 2977.0 / 21600.0, h * 3262.0 / 21600.0, w * 17087.0 / 21600.0, h * 17337.0 / 21600.0);
     let mut handles = vec![];
-    if name == "cloudCallout" {
+    if name == Preset::CloudCallout {
         let tip = Point::new(w / 2.0 + w * a0 / 1e5, h / 2.0 + h * a1 / 1e5);
         let c = Point::new(w / 2.0, h / 2.0);
         let mut bubbles = Pb::new();
@@ -124,7 +125,7 @@ pub(super) fn cloud(name: &str, w: f64, h: f64, a0: f64, a1: f64) -> Geometry {
 /// The equation shapes, by ECMA-376's formulas (checked against PowerPoint's outlines at several
 /// sizes and adjust values). Their bars span 73.49% of the width; the plus and multiply bars are
 /// `adj1` of the shorter side thick, the others' `adj1` of the height.
-pub(super) fn math(name: &str, w: f64, h: f64, a0: f64, a1: f64, a2: f64) -> Geometry {
+pub(super) fn math(name: Preset, w: f64, h: f64, a0: f64, a1: f64, a2: f64) -> Geometry {
     let pin = |lo: f64, v: f64, hi: f64| v.max(lo).min(hi.max(lo));
     let ss = w.min(h);
     let (hc, vc) = (w / 2.0, h / 2.0);
@@ -132,7 +133,7 @@ pub(super) fn math(name: &str, w: f64, h: f64, a0: f64, a1: f64, a2: f64) -> Geo
     let (x1, x2) = (hc - dx1, hc + dx1);
     let mut b = Pb::new();
     let text = match name {
-        "mathPlus" => {
+        Preset::MathPlus => {
             let a = pin(0.0, a0, 73490.0);
             let dy1 = h * 73490.0 / 200000.0;
             let dx2 = ss * a / 200000.0;
@@ -141,12 +142,12 @@ pub(super) fn math(name: &str, w: f64, h: f64, a0: f64, a1: f64, a2: f64) -> Geo
             b.poly(&[(x1, y2), (xa, y2), (xa, y1), (xb, y1), (xb, y2), (x2, y2), (x2, y3), (xb, y3), (xb, y4), (xa, y4), (xa, y3), (x1, y3)]);
             Rect::new(x1, y2, x2, y3)
         }
-        "mathMinus" => {
+        Preset::MathMinus => {
             let dy1 = h * pin(0.0, a0, 100000.0) / 200000.0;
             b.poly(&[(x1, vc - dy1), (x2, vc - dy1), (x2, vc + dy1), (x1, vc + dy1)]);
             Rect::new(x1, vc - dy1, x2, vc + dy1)
         }
-        "mathEqual" => {
+        Preset::MathEqual => {
             let a = pin(0.0, a0, 36745.0);
             let g = pin(0.0, a1, 100000.0 - 2.0 * a);
             let (dy1, dy2) = (h * a / 100000.0, h * g / 200000.0);
@@ -156,7 +157,7 @@ pub(super) fn math(name: &str, w: f64, h: f64, a0: f64, a1: f64, a2: f64) -> Geo
             b.poly(&[(x1, y3), (x2, y3), (x2, y4), (x1, y4)]);
             Rect::new(x1, y1, x2, y4)
         }
-        "mathNotEqual" => {
+        Preset::MathNotEqual => {
             let a = pin(0.0, a0, 50000.0);
             let cr_ang = pin(4200000.0, a1, 6600000.0);
             let g = pin(0.0, a2, 100000.0 - 2.0 * a);
@@ -199,7 +200,7 @@ pub(super) fn math(name: &str, w: f64, h: f64, a0: f64, a1: f64, a2: f64) -> Geo
             ]);
             Rect::new(x1, y1, x2, y4)
         }
-        "mathDivide" => {
+        Preset::MathDivide => {
             let a = pin(1000.0, a0, 36745.0);
             let max3 = ((73490.0 - a) / 4.0).min(36745.0 * w / h.max(1e-9));
             let r3 = pin(1000.0, a2, max3);
@@ -302,28 +303,28 @@ pub(super) fn scroll(vertical: bool, w: f64, h: f64, a0: f64) -> Geometry {
     Geometry { paths: vec![fill(b.take()), shade(curl.take(), FillMode::DarkenLess)], text_rect: text, handles: vec![], sites: mid_sites(w, h) }
 }
 
-pub(super) fn action_button(name: &str, w: f64, h: f64) -> Geometry {
+pub(super) fn action_button(name: Preset, w: f64, h: f64) -> Geometry {
     let body = corner_rect(w, h, [Corner::Square; 4]);
     let ss = w.min(h);
     let (cx, cy) = (w / 2.0, h / 2.0);
     let s = ss * 0.3;
     let mut g = Pb::new();
     match name {
-        "actionButtonBackPrevious" => {
+        Preset::ActionButtonBackPrevious => {
             g.poly(&[(cx + s, cy - s), (cx + s, cy + s), (cx - s, cy)]);
         }
-        "actionButtonForwardNext" => {
+        Preset::ActionButtonForwardNext => {
             g.poly(&[(cx - s, cy - s), (cx - s, cy + s), (cx + s, cy)]);
         }
-        "actionButtonBeginning" => {
+        Preset::ActionButtonBeginning => {
             g.poly(&[(cx + s, cy - s), (cx + s, cy + s), (cx - s * 0.6, cy)]);
             g.poly(&[(cx - s, cy - s), (cx - s * 0.7, cy - s), (cx - s * 0.7, cy + s), (cx - s, cy + s)]);
         }
-        "actionButtonEnd" => {
+        Preset::ActionButtonEnd => {
             g.poly(&[(cx - s, cy - s), (cx - s, cy + s), (cx + s * 0.6, cy)]);
             g.poly(&[(cx + s * 0.7, cy - s), (cx + s, cy - s), (cx + s, cy + s), (cx + s * 0.7, cy + s)]);
         }
-        "actionButtonHome" => {
+        Preset::ActionButtonHome => {
             g.poly(&[
                 (cx, cy - s),
                 (cx + s, cy),
@@ -334,10 +335,10 @@ pub(super) fn action_button(name: &str, w: f64, h: f64) -> Geometry {
                 (cx - s, cy),
             ]);
         }
-        "actionButtonInformation" | "actionButtonHelp" => {
+        Preset::ActionButtonInformation | Preset::ActionButtonHelp => {
             g.ellipse(cx, cy, s, s);
         }
-        "actionButtonReturn" => {
+        Preset::ActionButtonReturn => {
             g.m(cx + s, cy - s * 0.6).l(cx + s, cy + s * 0.2).q(cx + s, cy + s * 0.8, cx + s * 0.4, cy + s * 0.8).l(cx - s * 0.5, cy + s * 0.8);
             g.l(cx - s * 0.5, cy + s * 0.4)
                 .l(cx - s, cy + s * 0.9)
@@ -347,14 +348,14 @@ pub(super) fn action_button(name: &str, w: f64, h: f64) -> Geometry {
                 .l(cx + s * 0.6, cy - s * 0.6)
                 .z();
         }
-        "actionButtonMovie" => {
+        Preset::ActionButtonMovie => {
             g.poly(&[(cx - s, cy - s * 0.6), (cx + s * 0.4, cy - s * 0.6), (cx + s * 0.4, cy + s * 0.6), (cx - s, cy + s * 0.6)]);
             g.poly(&[(cx + s * 0.4, cy), (cx + s, cy - s * 0.5), (cx + s, cy + s * 0.5)]);
         }
-        "actionButtonDocument" => {
+        Preset::ActionButtonDocument => {
             g.poly(&[(cx - s * 0.7, cy - s), (cx + s * 0.3, cy - s), (cx + s * 0.7, cy - s * 0.6), (cx + s * 0.7, cy + s), (cx - s * 0.7, cy + s)]);
         }
-        "actionButtonSound" => {
+        Preset::ActionButtonSound => {
             g.poly(&[
                 (cx - s, cy - s * 0.35),
                 (cx - s * 0.5, cy - s * 0.35),
